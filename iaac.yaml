@@ -1,0 +1,225 @@
+terraform {
+  required_providers {
+    aws = {
+      source = "hashicorp/aws"
+      version = "3.50.0"
+    }
+  }
+}
+
+provider "aws" {
+  # Configuration options
+  region = "ap-south-1"
+}
+
+# Create VPC
+
+resource "aws_vpc" "myvpc" {
+  cidr_block       = "10.0.0.0/16"
+  instance_tenancy = "default"
+
+  tags = {
+    Name = "MYVPCTF"
+  }
+}
+
+# Public Subnet Creation
+
+resource "aws_subnet" "pubsub" {
+  vpc_id     = aws_vpc.myvpc.id
+  cidr_block = "10.0.1.0/24"
+  availability_zone = "ap-south-1a"
+
+  tags = {
+    Name = "PUBSUBTF"
+  }
+}
+
+# Private subnet creation
+
+resource "aws_subnet" "pvtsub" {
+  vpc_id     = aws_vpc.myvpc.id
+  cidr_block = "10.0.2.0/24"
+  availability_zone = "ap-south-1b"
+
+  tags = {
+    Name = "PVTSUBTF"
+  }
+}
+
+#Create IGW
+resource "aws_internet_gateway" "tfigw" {
+  vpc_id = aws_vpc.myvpc.id
+
+  tags = {
+    Name = "IGWTF"
+  }
+}
+
+# Public Route table
+resource "aws_route_table" "pubrt" {
+  vpc_id = aws_vpc.myvpc.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.tfigw.id
+  }
+
+
+  tags = {
+    Name = "PUBRTTF"
+  }
+}
+
+
+  resource "aws_route_table_association" "pubsubasso" {
+  subnet_id      = aws_subnet.pubsub.id
+  route_table_id = aws_route_table.pubrt.id
+}
+
+# Pvt Route table
+#Allocate EIP
+resource "aws_eip" "tfeip" {
+  vpc      = true
+}
+# NAT GW creation
+resource "aws_nat_gateway" "ngw" {
+  allocation_id = aws_eip.tfeip.id
+  subnet_id     = aws_subnet.pubsub.id
+
+  tags = {
+    Name = "NATGWTF"
+  }
+}
+#PVT RT
+resource "aws_route_table" "pvtrt" {
+  vpc_id = aws_vpc.myvpc.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_nat_gateway.ngw.id
+  }
+
+  tags = {
+    Name = "PVTRTTF"
+  }
+
+}
+
+  resource "aws_route_table_association" "pvtsubasso" {
+  subnet_id      = aws_subnet.pvtsub.id
+  route_table_id = aws_route_table.pvtrt.id
+}
+
+#public sg
+
+resource "aws_security_group" "pubsg" {
+  name        = "pubsg"
+  description = "Allow TLS inbound traffic"
+  vpc_id      = aws_vpc.myvpc.id
+
+  ingress {
+    description      = "TLS from VPC"
+    from_port        = 22
+    to_port          = 22
+    protocol         = "tcp"
+    cidr_blocks      = ["0.0.0.0/0"]
+  }
+
+    ingress {
+    description      = "TLS from VPC"
+    from_port        = 80
+    to_port          = 80
+    protocol         = "tcp"
+    cidr_blocks      = ["0.0.0.0/0"]
+
+  }
+
+  egress {
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1"
+    cidr_blocks      = ["0.0.0.0/0"]
+
+  }
+
+  tags = {
+    Name = "PUBSGTF"
+  }
+}
+
+# private SG
+resource "aws_security_group" "pvtsg" {
+  name        = "pvtsgnew"
+  description = "Allow TLS inbound traffic"
+  vpc_id      = aws_vpc.myvpc.id
+
+  ingress {
+    description      = "TLS from VPC"
+    from_port        = 22
+    to_port          = 22
+    protocol         = "tcp"
+    cidr_blocks      = ["0.0.0.0/0"]
+
+  }
+  ingress {
+    description      = "TLS from VPC"
+    from_port        = 80
+    to_port          = 80
+    protocol         = "tcp"
+    cidr_blocks      = ["0.0.0.0/0"]
+
+    }
+  ingress {
+    description      = "TLS from VPC"
+    from_port        = 443
+    to_port          = 443
+    protocol         = "tcp"
+    cidr_blocks      = ["0.0.0.0/0"]
+
+  }
+
+
+  egress {
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1"
+    cidr_blocks      = ["0.0.0.0/0"]
+
+  }
+
+  tags = {
+    Name = "PVTSGTF"
+  }
+}
+
+
+# EC2 insatnce creation
+
+resource "aws_instance" "pubec2" {
+    ami = "ami-08df646e18b182346"
+    associate_public_ip_address = "true"
+    instance_type = "t2.micro"
+    key_name = "OpenallKey"
+    subnet_id = aws_subnet.pubsub.id
+    vpc_security_group_ids = [aws_security_group.pubsg.id]
+    availability_zone = "ap-south-1a"
+    tags = {
+        Name = "PUBEC2"
+      }
+}
+
+
+resource "aws_instance" "pvtec2" {
+    ami = "ami-08df646e18b182346"
+    associate_public_ip_address = "true"
+    instance_type = "t2.micro"
+    key_name = "OpenallKey"
+    subnet_id = aws_subnet.pvtsub.id
+    vpc_security_group_ids = [aws_security_group.pvtsg.id]
+    availability_zone = "ap-south-1b"
+    tags = {
+        Name = "PVTEC2"
+      }
+}
+
